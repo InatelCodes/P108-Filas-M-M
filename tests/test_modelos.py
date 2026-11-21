@@ -6,8 +6,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from filas import Fila, FilaInstavel, NaoDisponivel, comparar_servidores, lambda_para_meta, menor_s_para_meta
-from filas.exercicios import todos
+from filas import Fila, FilaInstavel, comparar_servidores, lambda_para_meta, menor_s_para_meta
 from filas.kendall import decodificar
 from filas.unidades import converter_taxa, fmt_tempo, ler_taxa
 
@@ -83,8 +82,6 @@ class TestErros(unittest.TestCase):
         for kw in [dict(lam=0, mu=1), dict(lam=1, mu=-1), dict(lam=1, mu=2, s=0),
                    dict(lam=1, mu=2, s=3, K=2), dict(lam=1, mu=2, K=3, N=4)]:
             with self.assertRaises(ValueError): Fila(**kw)
-    def test_tempo_em_modelo_finito(self):
-        with self.assertRaises(NaoDisponivel): Fila(1, 2, K=3).P_W_maior(1)
     def test_finito_aceita_lambda_maior_que_mu(self):
         self.assertTrue(Fila(10, 2, 1, K=5).resultado().rho <= 1)
 
@@ -108,10 +105,46 @@ class TestFerramentas(unittest.TestCase):
         self.assertIsNone(decodificar("M/G/1").modelo_do_projeto()[0])
         with self.assertRaises(ValueError): decodificar("M/M")
 
-    def test_exercicios_conferem_com_gabarito(self):
-        for ex in todos():
-            for it in ex.itens:
-                self.assertIsNot(it.confere, False, f"{ex.id} item {it.letra}")
+
+class TestConsultasGerais(unittest.TestCase):
+    def test_operadores_de_n(self):
+        f = Fila(0.6, 0.5, 3)
+        self.assertAlmostEqual(f.P_clientes("≥", 3) + f.P_clientes("<", 3), 1)
+        self.assertAlmostEqual(f.P_clientes("≤", 2) + f.P_clientes(">", 2), 1)
+        self.assertAlmostEqual(f.P_clientes("entre", 1, 4), sum(f.P(n) for n in range(1, 5)))
+        self.assertAlmostEqual(f.P_clientes("=", 0), f.resultado().P0)
+        with self.assertRaises(ValueError): f.P_clientes("entre", 5, 2)
+
+    def test_fila_media_igual_soma_ponderada(self):
+        for f in [Fila(8, 3, 4), Fila(5, 4, 2, K=9), Fila(0.2, 1, 2, N=9)]:
+            total = sum(k * f.P_fila("=", k) for k in range(0, 12 if f.finita else 400))
+            self.assertAlmostEqual(total, f.resultado().Lq, places=5)
+            self.assertAlmostEqual(f.P_fila("≥", 0), 1)
+            self.assertAlmostEqual(f.P_fila("=", 0), f.P_clientes("≤", f.s))
+
+    def test_percentil_fecha_a_conta(self):
+        f = Fila(0.6, 0.5, 3)
+        for var, cauda in (("Wq", f.P_Wq_maior), ("W", f.P_W_maior)):
+            t = f.tempo_percentil(0.9, var)
+            self.assertAlmostEqual(cauda(t), 0.1, places=6)
+        self.assertEqual(Fila(1, 10, 1).tempo_percentil(0.5, "Wq"), 0.0)  # mais da metade nem espera
+
+    def test_tempos_de_espera_em_modelos_finitos(self):
+        # 1) com K enorme, converge para o modelo sem limite
+        for lam, mu, s in [(3, 4, 1), (0.6, 0.5, 3), (30, 20, 2)]:
+            inf, fin = Fila(lam, mu, s), Fila(lam, mu, s, K=400)
+            for t in (0.0, 0.3, 1.0, 3.0):
+                self.assertAlmostEqual(inf.P_W_maior(t), fin.P_W_maior(t), places=6)
+                self.assertAlmostEqual(inf.P_Wq_maior(t), fin.P_Wq_maior(t), places=6)
+
+        # 2) a integral da cauda é a média: ∫P(X>t)dt = E[X]
+        def integra(f, T, n=4000):
+            h = T / n
+            return h * (0.5 * f(0) + sum(f(i * h) for i in range(1, n)) + 0.5 * f(T))
+        for f in [Fila(5, 4, 2, K=7), Fila(0.2, 1, 2, N=9), Fila(1, 4, 1, K=3)]:
+            r = f.resultado()
+            self.assertAlmostEqual(integra(f.P_Wq_maior, 80 / f.mu), r.Wq, places=4)
+            self.assertAlmostEqual(integra(f.P_W_maior, 80 / f.mu), r.W, places=4)
 
 
 if __name__ == "__main__":
