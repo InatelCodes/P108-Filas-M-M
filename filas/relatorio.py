@@ -19,8 +19,18 @@ def linhas_resultado(res: Resultado, unidade: str) -> list[tuple[str, str]]:
     linhas = [
         ("Taxa de ocupação (ρ)", fmt_pct(res.rho)),
         ("Sistema vazio (P0)", fmt_pct(res.P0)),
-        ("Sistema ocupado — P(n ≥ 1)" if f.s == 1 else f"Todos os {f.s} servidores ocupados — P(n ≥ s)",
-         fmt_pct(res.P_todos_ocupados if f.s > 1 else 1 - res.P0)),
+    ]
+    if f.s == 1:
+        linhas.append(("Sistema ocupado — P(n ≥ 1)", fmt_pct(1 - res.P0)))
+    else:
+        linhas += [
+            ("Pelo menos um atendente ocupado — 1 − P0", fmt_pct(1 - res.P0)),
+            (f"Todos os {f.s} atendentes ocupados — P(n ≥ s)", fmt_pct(res.P_todos_ocupados)),
+            ("Pelo menos um atendente livre — P(n < s)", fmt_pct(1 - res.P_todos_ocupados)),
+        ]
+        if res.servidores_ocupados is not None:
+            linhas.append(("Atendentes ocupados em média", fmt(res.servidores_ocupados)))
+    linhas += [
         ("Clientes no sistema (L)", fmt(res.L)),
         ("Clientes na fila (Lq)", fmt(res.Lq)),
         ("Tempo no sistema (W)", _tempo(res.W, unidade)),
@@ -31,6 +41,12 @@ def linhas_resultado(res: Resultado, unidade: str) -> list[tuple[str, str]]:
     if res.p_bloqueio is not None:
         linhas.append(("Probabilidade de bloqueio (P_K)", fmt_pct(res.p_bloqueio)))
         linhas.append(("Clientes perdidos", f"{fmt(res.lam_perdida)} por {unidade}"))
+    if res.n_operando is not None:
+        linhas.append(("Clientes da população fora do sistema, em média (N − L)", fmt(res.n_operando)))
+        linhas.append(("Fração do tempo em que cada cliente está fora do sistema (1 − L/N)", fmt_pct(res.disp_individual)))
+        linhas.append(("Carga nominal da população — N·λ/(s·μ)", fmt_pct(res.rho_nominal)))
+    if hasattr(f, "cv2"):
+        linhas.append(("Variabilidade do atendimento — (σ·μ)²", fmt(f.cv2)))
     return linhas
 
 

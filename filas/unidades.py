@@ -1,7 +1,7 @@
 """
 Unidades de tempo, conversão de taxas e formatação de números (pt-BR).
 
-Convenção: 1 mês = 30 dias (a mesma usada na resolução do exercício dos motores).
+Convenção: 1 mês = 30 dias.
 """
 from __future__ import annotations
 
@@ -61,6 +61,19 @@ def taxa_por_amostra(valores: Iterable[float]) -> float:
     if not valores:
         raise ValueError("A lista de valores está vazia.")
     return sum(valores) / len(valores)
+
+
+def taxa_por_tabela(pares: Iterable[tuple]) -> float:
+    """
+    Média ponderada de uma tabela de frequências [(valor, frequência), ...]. As frequências podem ser
+    absolutas (nº de períodos) ou relativas (0,067…); a média é a mesma.
+    Ex.: [(9, 0,067), (10, 0,100), ...] -> nº médio de ocorrências por período (λ).
+    """
+    pares = [(float(v), float(f)) for v, f in pares]
+    total = sum(f for _, f in pares)
+    if not pares or total <= 0:
+        raise ValueError("A tabela precisa ter ao menos uma linha com frequência maior que zero.")
+    return sum(v * f for v, f in pares) / total
 
 
 _PADRAO_TAXA = re.compile(r"^\s*([\d.,]+)\s*([a-zçêé]*)\s*$", re.IGNORECASE)

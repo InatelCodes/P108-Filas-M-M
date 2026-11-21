@@ -60,6 +60,10 @@ class Resultado:
     lam_ef: float              # taxa efetiva de chegada (clientes que entram)
     p_bloqueio: Optional[float] = None   # só modelos /K: P(n = K)
     lam_perdida: Optional[float] = None  # só modelos /K: clientes perdidos por tempo
+    servidores_ocupados: Optional[float] = None  # nº médio de servidores ocupados = λef/μ
+    n_operando: Optional[float] = None   # só modelos /N: N − L (clientes da população fora do sistema)
+    disp_individual: Optional[float] = None  # só modelos /N: fração do tempo em que um cliente está fora (1 − L/N)
+    rho_nominal: Optional[float] = None  # só modelos /N: N·λ/(s·μ), carga "de papel" da população (pode passar de 1)
 
 
 # --------------------------------------------------------------------------
@@ -161,14 +165,18 @@ class Fila:
         return [x / total for x in w]
 
     @cached_property
-    def _P0_infinito(self) -> float:
+    def _logD_infinito(self) -> float:
+        """log do denominador de P0 (calculado em escala logarítmica: aguenta s na casa dos milhares)."""
         a, s = self.a, self.s
-        rho = a / s
-        soma, termo = 0.0, 1.0
-        for n in range(s):          # soma de aⁿ/n!  para n = 0..s-1
-            soma += termo
-            termo *= a / (n + 1)    # ao final, termo = aˢ/s!
-        return 1.0 / (soma + termo / (1.0 - rho))
+        la = math.log(a)
+        termos = [n * la - math.lgamma(n + 1) for n in range(s)]
+        termos.append(s * la - math.lgamma(s + 1) - math.log1p(-a / s))
+        topo = max(termos)
+        return topo + math.log(sum(math.exp(x - topo) for x in termos))
+
+    @property
+    def _P0_infinito(self) -> float:
+        return math.exp(-self._logD_infinito)
 
     def P(self, n: int) -> float:
         """Probabilidade de haver exatamente n clientes no sistema."""
@@ -179,7 +187,7 @@ class Fila:
             return pn[n] if n < len(pn) else 0.0
         a, s = self.a, self.s
         if n <= s:
-            return self._P0_infinito * math.exp(n * math.log(a) - math.lgamma(n + 1))
+            return math.exp(n * math.log(a) - math.lgamma(n + 1) - self._logD_infinito)
         return self.P(s) * (a / s) ** (n - s)
 
     def P_mais_que(self, r: int) -> float:
@@ -219,6 +227,7 @@ class Fila:
         return Resultado(
             fila=self, rho=rho, P0=self._P0_infinito, P_todos_ocupados=p_espera,
             L=self.lam * W, Lq=Lq, W=W, Wq=Wq, lam_ef=self.lam,
+            servidores_ocupados=self.a,
         )
 
     def _resultado_finito(self) -> Resultado:
@@ -234,57 +243,196 @@ class Fila:
             L=L, Lq=Lq, W=L / lam_ef, Wq=Lq / lam_ef, lam_ef=lam_ef,
             p_bloqueio=bloqueio,
             lam_perdida=self.lam * bloqueio if bloqueio is not None else None,
+            servidores_ocupados=lam_ef / self.mu,
+            n_operando=(self.N - L) if self.N is not None else None,
+            disp_individual=(1 - L / self.N) if self.N is not None else None,
+            rho_nominal=(self.N * self.lam / (s * self.mu)) if self.N is not None else None,
         )
 
-    # ---- distribuição dos tempos de espera (M/M/1 e M/M/s) -----------
-    def _exige_infinita(self):
-        if self.finita:
-            raise NaoDisponivel(
-                "P(W > t) e P(Wq > t) estão disponíveis apenas para M/M/1 e M/M/s "
-                "(sem limite de capacidade e com população infinita)."
-            )
+    # ---- consultas sobre o nº de clientes ----------------------------
+    def P_clientes(self, op: str, a: int, b: Optional[int] = None) -> float:
+        """
+        Probabilidade sobre o nº de clientes no sistema.
+        op: "=", "<", "≤", ">", "≥" (comparam n com a) ou "entre" (a ≤ n ≤ b).
+        """
+        a = int(a)
+        if op == "=":
+            r = self.P(a)
+        elif op == ">":
+            r = self.P_mais_que(a)
+        elif op == "≥":
+            r = self.P_mais_que(a - 1)
+        elif op == "≤":
+            r = 1.0 - self.P_mais_que(a)
+        elif op == "<":
+            r = 1.0 - self.P_mais_que(a - 1)
+        elif op == "entre":
+            if b is None or int(b) < a:
+                raise ValueError("Em 'entre', o segundo valor precisa ser ≥ ao primeiro.")
+            r = self.P_mais_que(a - 1) - self.P_mais_que(int(b))
+        else:
+            raise ValueError(f"Operador inválido: {op}")
+        return min(1.0, max(0.0, r))
+
+    def P_fila(self, op: str, a: int, b: Optional[int] = None) -> float:
+        """Igual a P_clientes, mas sobre o nº de clientes ESPERANDO na fila (nq = max(n - s, 0))."""
+        s, a = self.s, int(a)
+        if op == "=":
+            return self.P_clientes("≤", s) if a == 0 else (self.P(s + a) if a > 0 else 0.0)
+        if op == "<":
+            return 0.0 if a <= 0 else self.P_clientes("<", s + a)
+        if op == "≤":
+            return 0.0 if a < 0 else self.P_clientes("≤", s + a)
+        if op == ">":
+            return 1.0 if a < 0 else self.P_clientes(">", s + a)
+        if op == "≥":
+            return 1.0 if a <= 0 else self.P_clientes("≥", s + a)
+        if op == "entre":
+            if b is None or int(b) < a:
+                raise ValueError("Em 'entre', o segundo valor precisa ser ≥ ao primeiro.")
+            return min(1.0, max(0.0, self.P_fila("≥", a) - self.P_fila(">", int(b))))
+        raise ValueError(f"Operador inválido: {op}")
+
+    # ---- distribuição dos tempos de espera ---------------------------
+    @cached_property
+    def _vista_pela_chegada(self) -> list[float]:
+        """
+        Modelos finitos: probabilidade de um cliente que ENTRA encontrar n clientes no sistema
+        (n = 0..M-1). É proporcional a λn·Pn (efeito PASTA ajustado pelas chegadas bloqueadas).
+        """
+        pn = self._pn_finito
+        pesos = [self._lam_n(n) * pn[n] for n in range(len(pn) - 1)]
+        total = sum(pesos)
+        return [w / total for w in pesos]
 
     def P_Wq_maior(self, t: float) -> float:
         """P(Wq > t): probabilidade de esperar na fila mais que t."""
-        self._exige_infinita()
-        if t < 0:
-            return 1.0
-        rho = self.a / self.s
-        p_espera = self.P(self.s) / (1.0 - rho)
-        return p_espera * math.exp(-self.s * self.mu * (1.0 - rho) * t)
-
-    def P_W_maior(self, t: float) -> float:
-        """P(W > t): probabilidade de ficar no sistema (fila + serviço) mais que t."""
-        self._exige_infinita()
         if t < 0:
             return 1.0
         s, mu = self.s, self.mu
-        rho = self.a / s
-        p_espera = self.P(s) / (1.0 - rho)
-        x = s - 1 - self.a
-        e1 = math.exp(-mu * t)
-        if abs(x) < 1e-9:           # caso especial: o termo vira μ·t·e^(-μt)
-            return e1 * (1.0 + p_espera * mu * t)
-        e2 = math.exp(-mu * t * (s - self.a))
-        return e1 + p_espera * (e1 - e2) / x
+        if not self.finita:
+            rho = self.a / s
+            return self.P(s) / (1.0 - rho) * math.exp(-s * mu * (1.0 - rho) * t)
+        # quem encontra n >= s clientes espera n-s+1 saídas, cada uma a taxa s·μ
+        vista = self._vista_pela_chegada
+        if len(vista) <= s:
+            return 0.0
+        F = _poisson_acumulada(s * mu * t, len(vista) - s)      # F[k] = P(Erlang(k, sμ) > t)
+        return min(1.0, sum(vista[n] * F[n - s + 1] for n in range(s, len(vista))))
+
+    def P_W_maior(self, t: float) -> float:
+        """P(W > t): probabilidade de ficar no sistema (fila + serviço) mais que t."""
+        if t < 0:
+            return 1.0
+        s, mu = self.s, self.mu
+        if not self.finita:
+            rho = self.a / s
+            p_espera = self.P(s) / (1.0 - rho)
+            x = s - 1 - self.a
+            e1 = math.exp(-mu * t)
+            if abs(x) < 1e-9:           # caso especial: o termo vira μ·t·e^(-μt)
+                return e1 * (1.0 + p_espera * mu * t)
+            e2 = math.exp(-mu * t * (s - self.a))
+            return e1 + p_espera * (e1 - e2) / x
+        vista = self._vista_pela_chegada
+        n_max = len(vista) - 1
+        if s == 1:                       # n clientes à frente + o próprio: Erlang(n+1, μ)
+            F = _poisson_acumulada(mu * t, n_max + 1)
+            return min(1.0, sum(p * F[n + 1] for n, p in enumerate(vista)))
+        beta, gama = s * mu, (s - 1) * mu
+        total = sum(vista[:s]) * math.exp(-mu * t)               # entra direto no serviço
+        if n_max >= s:
+            k_max = n_max - s + 1
+            F = _poisson_acumulada(beta * t, k_max)
+            sup = _poisson_superior(gama * t, k_max)
+            razao = math.log(beta / gama)
+            for n in range(s, n_max + 1):
+                k = n - s + 1
+                extra = (math.exp(-mu * t + k * razao + math.log(sup[k])) if sup[k] > 0 else 0.0)
+                total += vista[n] * (F[k] + extra)
+        return min(1.0, total)
+
+    def tempo_percentil(self, p: float, variavel: str = "Wq") -> float:
+        """
+        Menor tempo t tal que P(X ≤ t) ≥ p, com X = "Wq" (espera na fila) ou "W" (tempo no sistema).
+        Ex.: tempo_percentil(0.95, "Wq") -> "95% dos clientes esperam até t".
+        """
+        if not 0 < p < 1:
+            raise ValueError("O percentil precisa estar entre 0 e 100% (exclusive).")
+        cauda = {"Wq": self.P_Wq_maior, "W": self.P_W_maior}[variavel]
+        alvo = 1.0 - p
+        if cauda(0.0) <= alvo:
+            return 0.0
+        hi = 1.0 / self.mu
+        for _ in range(200):
+            if cauda(hi) <= alvo:
+                break
+            hi *= 2
+        lo = 0.0
+        for _ in range(200):
+            meio = (lo + hi) / 2
+            if cauda(meio) > alvo:
+                lo = meio
+            else:
+                hi = meio
+        return hi
+
+
+# --------------------------------------------------------------------------
+# Auxiliares numéricos (Erlang / Poisson)
+# --------------------------------------------------------------------------
+def _pmf_poisson(x: float, n: int) -> list[float]:
+    """[P(Poisson(x) = j) para j = 0..n]."""
+    if x <= 0:
+        return [1.0] + [0.0] * n
+    lx = math.log(x)
+    return [math.exp(-x + j * lx - math.lgamma(j + 1)) for j in range(n + 1)]
+
+
+def _poisson_acumulada(x: float, k_max: int) -> list[float]:
+    """F[k] = P(Poisson(x) < k) = P(Erlang(k, β) > t) para k = 0..k_max (com x = β·t)."""
+    pmf = _pmf_poisson(x, k_max)
+    F, soma = [0.0], 0.0
+    for j in range(k_max):
+        soma += pmf[j]
+        F.append(min(1.0, soma))
+    return F
+
+
+def _poisson_superior(x: float, k_max: int) -> list[float]:
+    """sup[k] = P(Poisson(x) ≥ k) para k = 0..k_max, somando de trás para frente (estável)."""
+    if x <= 0:
+        return [1.0] + [0.0] * k_max
+    j_max = max(k_max, int(x + 12 * math.sqrt(x) + 50))
+    pmf = _pmf_poisson(x, j_max)
+    sup, soma = [0.0] * (j_max + 2), 0.0
+    for j in range(j_max, -1, -1):
+        soma += pmf[j]
+        sup[j] = soma
+    return sup[:k_max + 1]
 
 
 # --------------------------------------------------------------------------
 # Ferramentas de dimensionamento
 # --------------------------------------------------------------------------
 def custo_total(res: Resultado, custo_servidor: float, custo_espera: float,
-                espera_em: str = "L", custo_bloqueio: float = 0.0) -> float:
+                espera_em: str = "L", custo_bloqueio: float = 0.0,
+                servidor_so_ocupado: bool = False) -> float:
     """
-    Custo por unidade de tempo = Cs·s + Cw·(L ou Lq) + Cb·(clientes perdidos).
+    Custo por unidade de tempo = Cs·(servidores) + Cw·(L ou Lq) + Cb·(clientes perdidos).
 
-    custo_servidor : custo de manter UM servidor por unidade de tempo.
+    custo_servidor : custo de UM servidor por unidade de tempo.
     custo_espera   : custo de UM cliente esperando por unidade de tempo.
     espera_em      : "L" (cliente no sistema) ou "Lq" (cliente só na fila).
     custo_bloqueio : custo de cada cliente perdido (só modelos /K).
+    servidor_so_ocupado : False = paga todos os s servidores o tempo todo (Cs·s);
+                          True  = paga só enquanto trabalham (Cs · nº médio de servidores ocupados),
+                          como no técnico que "pode ser realocado quando não está consertando".
     """
     if espera_em not in ("L", "Lq"):
         raise ValueError('espera_em deve ser "L" ou "Lq".')
-    custo = custo_servidor * res.fila.s + custo_espera * getattr(res, espera_em)
+    servidores = res.servidores_ocupados if servidor_so_ocupado else res.fila.s
+    custo = custo_servidor * servidores + custo_espera * getattr(res, espera_em)
     if res.lam_perdida:
         custo += custo_bloqueio * res.lam_perdida
     return custo
