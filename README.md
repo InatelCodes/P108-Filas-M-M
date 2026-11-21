@@ -12,6 +12,9 @@ do material (M/M/s, M/M/s/K, M/M/s/N, M/G/1 e filas com prioridades).
 | **M/G/1** | 1 | nenhum | atendimento que **não** é exponencial (constante, Erlang, ou só se sabe média e desvio padrão) |
 | **Prioridades** | 1 ou s | nenhum | clientes de classes diferentes, com ou sem interrupção do atendimento |
 
+> **Primeira vez, ou não conhece a matéria?** Comece pelo **[GUIA_PASSO_A_PASSO.md](GUIA_PASSO_A_PASSO.md)**: ele explica
+> as ideias em linguagem simples e leva você, clique por clique, por 7 exemplos. Este README é a **referência** completa.
+
 Além do cálculo direto, o app resolve os problemas **"ao contrário"** (o enunciado dá ρ, Lq, W… e pede λ e μ, ou pede
 a taxa necessária para atingir uma meta), calcula custos, probabilidades de Poisson, a Lei de Little e tem uma
 aba de **teoria** (fórmulas, glossário, como ler um enunciado).
@@ -230,6 +233,7 @@ fila" é o do tempo de espera); os valores existem, só mudam de rótulo.
 filas-mm/
 ├── app.py               interface web (Streamlit)
 ├── cli.py               terminal
+├── GUIA_PASSO_A_PASSO.md  guia para iniciantes (comece por aqui)
 ├── requirements.txt
 ├── .streamlit/config.toml   tema
 ├── filas/
