@@ -484,6 +484,9 @@ def formulario_prioridades(chave: str):
             pcts.append(c2.number_input(f"% da classe {i + 1}", min_value=0.0, max_value=100.0, value=None,
                                         placeholder="% do total", step=1.0, format="%g", key=f"{chave}_pct{i}",
                                         label_visibility="collapsed"))
+    if modo_lam == "pct" and pcts and all(p is not None for p in pcts) and abs(sum(pcts) - 100) > 1e-6:
+        html(f'<div class="eco">As porcentagens somam {num(sum(pcts), 2)}% (e não 100%). '
+             'O programa divide o λ total proporcionalmente a elas.</div>')
     classes_mg1, mu_s = [], None
     if tipo == "mms":
         mu_s = cartao_taxa(f"{chave}_mu", 3, "Quanto cada atendente atende?",
@@ -692,12 +695,23 @@ def painel_prioridades(modelo, un: str):
     """modelo: PrioridadesMMs ou PrioridadesMG1."""
     r = modelo.resultado()
     html(f'<div class="sec" style="margin-top:.2rem">Resultado — prioridades {r.disciplina}</div>')
+    if isinstance(modelo, PrioridadesMMs):
+        lams_txt = " · ".join(f"λ{c.classe} = {num(c.lam)}" for c in r.classes)
+        usados = (f"{lams_txt} (total {num(sum(modelo.lams))} por {un}) · μ = {num(modelo.mu)} por {un} "
+                  f"em cada atendente · {modelo.s} atendente(s) · ocupação ρ = "
+                  f"{fmt_pct(sum(modelo.lams) / (modelo.s * modelo.mu), 1)}")
+    else:
+        partes = [f"classe {c.classe}: λ = {num(c.lam)}, atendimento médio {fmt_tempo(modelo.classes[c.classe - 1].media, un)}"
+                  for c in r.classes]
+        usados = (" · ".join(partes) + f" · ocupação ρ = "
+                  f"{fmt_pct(sum(k.lam * k.media for k in modelo.classes), 1)}")
+    html(f'<div class="eco" style="margin:.2rem 0 .8rem"><b>Dados usados no cálculo (λ por {un}):</b> {usados}</div>')
     linhas = []
     for c in r.classes:
-        linhas.append([f"Classe {c.classe}", c.prioridade, fmt(c.lam, 3), fmt(c.L, 4), fmt(c.Lq, 4),
+        linhas.append([f"Classe {c.classe}", c.prioridade, num(c.lam), fmt(c.L, 4), fmt(c.Lq, 4),
                        fmt_tempo(c.W, un), fmt_tempo(c.Wq, un)])
     g = r.geral
-    linhas.append(["<b>Todos (média, igual à FIFO)</b>", "—", fmt(g.lam, 3), fmt(g.L, 4), fmt(g.Lq, 4),
+    linhas.append(["<b>Todos (média, igual à FIFO)</b>", "—", num(g.lam), fmt(g.L, 4), fmt(g.Lq, 4),
                    fmt_tempo(g.W, un), fmt_tempo(g.Wq, un)])
     st.markdown(md_tabela(["Classe", "Prioridade", f"λ (por {un})", "L", "Lq", "W", "Wq"], linhas),
                 unsafe_allow_html=True)
