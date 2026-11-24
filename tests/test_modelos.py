@@ -95,7 +95,7 @@ class TestFerramentas(unittest.TestCase):
         self.assertAlmostEqual(converter_taxa(30, "hora", "minuto"), 0.5)
         self.assertAlmostEqual(ler_taxa("20 min", "hora"), 3)
         self.assertAlmostEqual(ler_taxa("0,5", "hora"), 0.5)
-        self.assertEqual(fmt_tempo(0.75, "hora"), "45 min")
+        self.assertEqual(fmt_tempo(0.75, "hora"), "0,75 h")
 
     def test_kendall(self):
         k = decodificar("M/M/3/FCFS/10/100")
