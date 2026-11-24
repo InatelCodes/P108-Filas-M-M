@@ -108,13 +108,21 @@ def fmt_pct(prob: float, casas: int = 2) -> str:
 
 
 def fmt_tempo(valor: float, unidade: str) -> str:
-    """Escolhe a unidade mais legível: 0,75 hora -> '45 min'; 0,6667 mês -> '20 dias'."""
+    """Formata tempos com unidades compostas (ex.: 1 h 12 min; 12 min 3 s)."""
     segundos = valor * UNIDADES[unidade]
     if segundos == 0:
         return "0 s"
-    for nome in ("mês", "dia", "hora", "minuto", "segundo"):
-        v = segundos / UNIDADES[nome]
-        if abs(v) >= 1 or nome == "segundo":
-            numero = fmt(v, 2).rstrip("0").rstrip(",")
-            return f"{numero} {ABREV[nome]}"
-    return f"{fmt(valor)} {ABREV[unidade]}"
+    sinal = "−" if segundos < 0 else ""
+    restante = abs(segundos)
+    partes = []
+    for nome in ("mês", "dia", "hora", "minuto"):
+        fator = UNIDADES[nome]
+        quantidade = int(restante // fator)
+        if quantidade:
+            partes.append(f"{quantidade} {ABREV[nome]}")
+            restante -= quantidade * fator
+    if restante >= 0.005 or not partes:
+        casas = 2 if restante < 10 else 1
+        numero = fmt(restante, casas).rstrip("0").rstrip(",")
+        partes.append(f"{numero} s")
+    return sinal + " e ".join(partes[:2] if len(partes) > 2 else partes)

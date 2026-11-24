@@ -706,14 +706,19 @@ def painel_prioridades(modelo, un: str):
         usados = (" · ".join(partes) + f" · ocupação ρ = "
                   f"{fmt_pct(sum(k.lam * k.media for k in modelo.classes), 1)}")
     html(f'<div class="eco" style="margin:.2rem 0 .8rem"><b>Dados usados no cálculo (λ por {un}):</b> {usados}</div>')
+    if isinstance(modelo, PrioridadesMMs) and modelo.interrupcao:
+        html('<div class="eco" style="margin:.2rem 0 .8rem">Nas medidas L e Lq, considera-se λ acumulado até cada classe (λ₁; λ₁+λ₂; λ₁+λ₂+λ₃...). A coluna λ continua mostrando a chegada individual de cada classe.</div>')
     linhas = []
+    lam_acumulado = 0.0
     for c in r.classes:
-        linhas.append([f"Classe {c.classe}", c.prioridade, num(c.lam), fmt(c.L, 4), fmt(c.Lq, 4),
+        lam_acumulado += c.lam
+        lam_medidas = lam_acumulado if isinstance(modelo, PrioridadesMMs) and modelo.interrupcao else c.lam
+        linhas.append([f"Classe {c.classe}", c.prioridade, num(c.lam), num(lam_medidas), fmt(c.L, 4), fmt(c.Lq, 4),
                        fmt_tempo(c.W, un), fmt_tempo(c.Wq, un)])
     g = r.geral
-    linhas.append(["<b>Todos (média, igual à FIFO)</b>", "—", num(g.lam), fmt(g.L, 4), fmt(g.Lq, 4),
+    linhas.append(["<b>Todos (média, igual à FIFO)</b>", "—", num(g.lam), "—", fmt(g.L, 4), fmt(g.Lq, 4),
                    fmt_tempo(g.W, un), fmt_tempo(g.Wq, un)])
-    st.markdown(md_tabela(["Classe", "Prioridade", f"λ (por {un})", "L", "Lq", "W", "Wq"], linhas),
+    st.markdown(md_tabela(["Classe", "Prioridade", f"λ individual (por {un})", f"λ usado em L/Lq (por {un})", "L", "Lq", "W", "Wq"], linhas),
                 unsafe_allow_html=True)
     frases = [f"A <b>classe {c.classe}</b> espera {fmt_tempo(c.Wq, un)} na fila e fica {fmt_tempo(c.W, un)} no sistema."
               for c in r.classes]

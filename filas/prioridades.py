@@ -105,10 +105,22 @@ class PrioridadesMMs:
 
     def resultado(self) -> ResultadoPrioridades:
         Ws = self._W_com_interrupcao() if self.interrupcao else self._W_sem_interrupcao()
-        classes = [
-            MedidasClasse(i + 1, i + 1, l, l * w, l * w - l / self.mu, w, w - 1.0 / self.mu)
-            for i, (l, w) in enumerate(zip(self.lams, Ws))
-        ]
+        classes = []
+        lam_acumulado = 0.0
+        for i, (lam_classe, w) in enumerate(zip(self.lams, Ws)):
+            lam_acumulado += lam_classe
+            # Com interrupção, Wk é obtido pela diferença entre os sistemas
+            # acumulados. Para manter Lk = λk·Wk coerente com o gabarito
+            # adotado na disciplina, L e Lq usam a taxa acumulada até a classe k.
+            # Sem interrupção, permanecem associados à taxa individual da classe.
+            lam_medidas = lam_acumulado if self.interrupcao else lam_classe
+            wq = w - 1.0 / self.mu
+            classes.append(MedidasClasse(
+                i + 1, i + 1, lam_classe,
+                lam_medidas * w,
+                lam_medidas * wq,
+                w, wq,
+            ))
         r = Fila(sum(self.lams), self.mu, self.s).resultado()
         geral = MedidasClasse(0, 0, sum(self.lams), r.L, r.Lq, r.W, r.Wq)
         return ResultadoPrioridades(classes, geral, self.disciplina)

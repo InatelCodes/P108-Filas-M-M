@@ -293,6 +293,18 @@ class TestPrioridades(Base):
         self.ok(r[0].Wq, 0.06, tol=0.005); self.ok(r[1].Wq, 0.33, tol=0.005)
         self.ok(r[0].W, 0.11, tol=0.006); self.ok(r[1].W, 0.40, tol=0.006)
 
+
+    def test_gabarito_professor_prioridades_com_interrupcao_duas_filas(self):
+        r = PrioridadesMMs((0.6, 1.4, 2.0), 5, 2, True).resultado()
+        esperados = (
+            (0.2007, 0.0007, 0.1204, 0.0004),
+            (0.2116, 0.0116, 0.4232, 0.0232),
+            (0.2679, 0.0679, 1.0714, 0.2714),
+        )
+        for classe, valores in zip(r.classes, esperados):
+            for obtido, esperado in zip((classe.W, classe.Wq, classe.L, classe.Lq), valores):
+                self.ok(obtido, esperado, tol=5e-4)
+
     def test_media_geral_igual_a_fifo(self):
         # a média ponderada de W das classes é a mesma de uma fila FIFO (lei da conservação)
         for inter in (False, True):
